@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ניטור קרדיטים בשרתים</title>
+    <title>ניטור שרתים - מדד שימוש</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -12,7 +12,7 @@
             padding: 20px;
         }
         .container {
-            max-width: 800px;
+            max-width: 700px;
             margin: 0 auto;
             background: #ffffff;
             padding: 20px;
@@ -22,23 +22,38 @@
         h1 {
             text-align: center;
             color: #333333;
+            margin-bottom: 25px;
         }
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 20px;
         }
         th, td {
-            padding: 12px;
-            text-align: right;
+            padding: 14px;
+            text-align: center;
             border-bottom: 1px solid #dddddd;
         }
         th {
-            background-color: #007bff;
+            background-color: #343a40;
             color: white;
+            font-weight: bold;
         }
         tr:hover {
-            background-color: #f1f1f1;
+            background-color: #f8f9fa;
+        }
+        /* עיצוב עבור בר הסטטוס הצבעוני */
+        .status-bar-container {
+            width: 100%;
+            background-color: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            height: 20px;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
+        }
+        .status-bar {
+            height: 100%;
+            width: 100%; /* הבר תמיד מלא, רק הצבע שלו משתנה מקצה לקצה */
+            transition: background-color 0.3s ease;
         }
         .error-message {
             color: #dc3545;
@@ -47,23 +62,22 @@
             border-radius: 4px;
             display: none;
             margin-bottom: 15px;
+            text-align: right;
         }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>מצב קרדיטים בשרתים</h1>
+    <h1>מדד עומס שרתים</h1>
     <div id="error-box" class="error-message"></div>
     
     <table>
         <thead>
             <tr>
-                <th>שם השרת</th>
-                <th>קרדיטים בשימוש</th>
-                <th>קרדיטים שנותרו</th>
-                <th>סך הכל קרדיטים</th>
-                <th>אחוז ניצול</th>
+                <th style="width: 10%;">מספר</th>
+                <th style="width: 30%;">מזהה שרת</th>
+                <th style="width: 60%;">סטטוס שימוש (מירוק לאדום)</th>
             </tr>
         </thead>
         <tbody id="servers-table-body">
@@ -72,41 +86,45 @@
 </div>
 
 <script>
-    /**
-     * פונקציה לטעינת נתוני השרתים מקובץ ה-JSON והצגתם בטבלה
-     */
     async function loadServerData() {
         const tableBody = document.getElementById('servers-table-body');
         const errorBox = document.getElementById('error-box');
         
         try {
-            // ביצוע בקשת Fetch לקובץ ה-JSON הסטטי באותו נתיב
             const response = await fetch('servers_config.json');
             
             if (!response.ok) {
-                throw new Error(`שגיאה בטעינת הקובץ: ${response.status} ${response.statusText}`);
+                throw new Error(`שגיאה בטעינת קובץ הנתונים: ${response.status}`);
             }
             
             const data = await response.json();
             
-            // אימות בסיסי של מבנה הנתונים
             if (!data.servers || !Array.isArray(data.servers)) {
-                throw new Error("מבנה קובץ ה-JSON אינו תקין. צפוי מערך תחת המפתח 'servers'.");
+                throw new Error("מבנה קובץ ה-JSON אינו תקין.");
             }
             
-            tableBody.innerHTML = ''; // ניקוי הטבלה לפני הזנת נתונים
+            tableBody.innerHTML = ''; 
             
-            data.servers.forEach(server => {
-                const remainingCredits = server.total_credits - server.credits_used;
-                const usagePercentage = ((server.credits_used / server.total_credits) * 100).toFixed(1);
+            // שימוש באינדקס הלולאה (index) לצורך מספור רץ אוטומטי
+            data.servers.forEach((server, index) => {
+                // חישוב יחס הניצול (ערך בין 0 ל-1)
+                const usageRatio = Math.min(Math.max(server.credits_used / server.total_credits, 0), 1);
+                
+                // חישוב גוון הצבע ב-HSL:
+                // כאשר הניצול הוא 0 (ירוק) -> הגוון יהיה 120
+                // כאשר הניצול הוא 1 (אדום) -> הגוון יהיה 0
+                const hue = (1 - usageRatio) * 120;
+                const backgroundColor = `hsl(${hue}, 85%, 45%)`;
                 
                 const row = document.createElement('tr');
                 row.innerHTML = `
+                    <td>${index + 1}</td>
                     <td><b>${escapeHtml(server.server_name)}</b></td>
-                    <td>${server.credits_used.toLocaleString()}</td>
-                    <td>${remainingCredits.toLocaleString()}</td>
-                    <td>${server.total_credits.toLocaleString()}</td>
-                    <td>${usagePercentage}%</td>
+                    <td>
+                        <div class="status-bar-container">
+                            <div class="status-bar" style="background-color: ${backgroundColor};"></div>
+                        </div>
+                    </td>
                 `;
                 tableBody.appendChild(row);
             });
@@ -114,13 +132,10 @@
         } catch (error) {
             errorBox.textContent = `שגיאה: ${error.message}`;
             errorBox.style.display = 'block';
-            console.error("Fetch error:", error);
+            console.error(error);
         }
     }
 
-    /**
-     * פונקציית עזר למניעת מתקפות XSS בעת הזנת טקסט חופשי מה-JSON ל-HTML
-     */
     function escapeHtml(string) {
         return String(string).replace(/[&<>"']/g, function (s) {
             return {
@@ -133,7 +148,6 @@
         });
     }
 
-    // הפעלת הפונקציה עם טעינת הדף
     window.addEventListener('DOMContentLoaded', loadServerData);
 </script>
 
