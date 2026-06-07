@@ -2,12 +2,12 @@
   "servers": [
     {
       "server_name": "596cb6",
-      "credits_used": 55947,
+      "credits_used": 61458,
       "total_credits": 300000
     },
     {
       "server_name": "cd7ad2",
-      "credits_used": 48718,
+      "credits_used": 50037,
       "total_credits": 300000
     },
     {
@@ -17,7 +17,7 @@
     },
     {
       "server_name": "1de529",
-      "credits_used": 40,
+      "credits_used": 2588,
       "total_credits": 300000
     }
   ]
