@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ניטור שרתים - מדד שימוש</title>
+    <title>ניטור שרתים - מדד משולש</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -12,7 +12,7 @@
             padding: 20px;
         }
         .container {
-            max-width: 700px;
+            max-width: 800px;
             margin: 0 auto;
             background: #ffffff;
             padding: 20px;
@@ -29,9 +29,10 @@
             border-collapse: collapse;
         }
         th, td {
-            padding: 14px;
+            padding: 16px;
             text-align: center;
             border-bottom: 1px solid #dddddd;
+            vertical-align: middle;
         }
         th {
             background-color: #343a40;
@@ -41,20 +42,39 @@
         tr:hover {
             background-color: #f8f9fa;
         }
-        /* עיצוב עבור בר הסטטוס הצבעוני */
-        .status-bar-container {
+        
+        /* מיכל המדד הויזואלי */
+        .gauge-container {
+            position: relative;
             width: 100%;
-            background-color: #e9ecef;
-            border-radius: 4px;
-            overflow: hidden;
-            height: 20px;
-            box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
+            height: 35px; /* גובה אזור המדד כולו */
+            display: flex;
+            align-items: center;
         }
-        .status-bar {
-            height: 100%;
-            width: 100%; /* הבר תמיד מלא, רק הצבע שלו משתנה מקצה לקצה */
-            transition: background-color 0.3s ease;
+
+        /* המשולש הצבעוני הרציף */
+        .color-triangle {
+            width: 100%;
+            height: 24px;
+            /* מעבר צבעים רציף מירוק, דרך צהוב/כתום, ועד אדום */
+            background: linear-gradient(to left, #28a745 0%, #ffc107 50%, #dc3545 100%);
+            /* חיתוך הדיב לצורת משולש שמתחיל נמוך בירוק ועולה גבוה באדום */
+            clip-path: polygon(0% 100%, 100% 0%, 100% 100%);
         }
+
+        /* פס הסימון הניצב (המחוון) */
+        .indicator-line {
+            position: absolute;
+            top: 0;
+            width: 4px;
+            height: 30px;
+            background-color: #000000;
+            border-radius: 2px;
+            box-shadow: 0 0 4px rgba(255, 255, 255, 0.9);
+            transform: translateX(50%); /* מרכז את הפס על נקודת האחוז המדויקת */
+            transition: right 0.5s ease-out; /* אנימציה חלקה בעת טעינת שינויים */
+        }
+
         .error-message {
             color: #dc3545;
             background-color: #f8d7da;
@@ -76,8 +96,8 @@
         <thead>
             <tr>
                 <th style="width: 10%;">מספר</th>
-                <th style="width: 30%;">מזהה שרת</th>
-                <th style="width: 60%;">סטטוס שימוש (מירוק לאדום)</th>
+                <th style="width: 25%;">מזהה שרת</th>
+                <th style="width: 65%;">סטטוס שימוש</th>
             </tr>
         </thead>
         <tbody id="servers-table-body">
@@ -105,24 +125,19 @@
             
             tableBody.innerHTML = ''; 
             
-            // שימוש באינדקס הלולאה (index) לצורך מספור רץ אוטומטי
             data.servers.forEach((server, index) => {
-                // חישוב יחס הניצול (ערך בין 0 ל-1)
+                // חישוב אחוז הניצול (ערך בין 0 ל-100)
                 const usageRatio = Math.min(Math.max(server.credits_used / server.total_credits, 0), 1);
-                
-                // חישוב גוון הצבע ב-HSL:
-                // כאשר הניצול הוא 0 (ירוק) -> הגוון יהיה 120
-                // כאשר הניצול הוא 1 (אדום) -> הגוון יהיה 0
-                const hue = (1 - usageRatio) * 120;
-                const backgroundColor = `hsl(${hue}, 85%, 45%)`;
+                const usagePercentage = usageRatio * 100;
                 
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td>${index + 1}</td>
                     <td><b>${escapeHtml(server.server_name)}</b></td>
                     <td>
-                        <div class="status-bar-container">
-                            <div class="status-bar" style="background-color: ${backgroundColor};"></div>
+                        <div class="gauge-container">
+                            <div class="color-triangle"></div>
+                            <div class="indicator-line" style="right: ${usagePercentage}%;"></div>
                         </div>
                     </td>
                 `;
