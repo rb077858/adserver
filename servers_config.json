@@ -1,0 +1,24 @@
+{
+  "servers": [
+    {
+      "server_name": "596cb6",
+      "credits_used": 0,
+      "total_credits": 300000
+    },
+    {
+      "server_name": "cd7ad2",
+      "credits_used": 0,
+      "total_credits": 300000
+    },
+    {
+      "server_name": "4173e1",
+      "credits_used": 0,
+      "total_credits": 300000
+    },
+    {
+      "server_name": "1de529",
+      "credits_used": 0,
+      "total_credits": 300000
+    }
+  ]
+}
