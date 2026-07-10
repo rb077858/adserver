@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ניטור שרתים - מדד משולש</title>
+    <title>ניטור שרתים</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -101,56 +101,12 @@
             </tr>
         </thead>
         <tbody id="servers-table-body">
-            </tbody>
+        </tbody>
     </table>
 </div>
 
 <script>
-    async function loadServerData() {
-        const tableBody = document.getElementById('servers-table-body');
-        const errorBox = document.getElementById('error-box');
-        
-        try {
-            const response = await fetch('servers_config.json');
-            
-            if (!response.ok) {
-                throw new Error(`שגיאה בטעינת קובץ הנתונים: ${response.status}`);
-            }
-            
-            const data = await response.json();
-            
-            if (!data.servers || !Array.isArray(data.servers)) {
-                throw new Error("מבנה קובץ ה-JSON אינו תקין.");
-            }
-            
-            tableBody.innerHTML = ''; 
-            
-            data.servers.forEach((server, index) => {
-                // חישוב אחוז הניצול (ערך בין 0 ל-100)
-                const usageRatio = Math.min(Math.max(server.credits_used / server.total_credits, 0), 1);
-                const usagePercentage = usageRatio * 100;
-                
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td>${index + 1}</td>
-                    <td><b>${escapeHtml(server.server_name)}</b></td>
-                    <td>
-                        <div class="gauge-container">
-                            <div class="color-triangle"></div>
-                            <div class="indicator-line" style="right: ${usagePercentage}%;"></div>
-                        </div>
-                    </td>
-                `;
-                tableBody.appendChild(row);
-            });
-            
-        } catch (error) {
-            errorBox.textContent = `שגיאה: ${error.message}`;
-            errorBox.style.display = 'block';
-            console.error(error);
-        }
-    }
-
+    // פונקציית עזר למניעת הזרקות קוד - מוגדרת למעלה כדי למנוע שגיאות ריצה
     function escapeHtml(string) {
         return String(string).replace(/[&<>"']/g, function (s) {
             return {
@@ -161,6 +117,80 @@
                 "'": '&#39;'
             }[s];
         });
+    }
+
+    // פונקציה פשוטה לפירוק שורות CSV (מתמודדת עם פסיקים פשוטים)
+    function parseCSV(text) {
+        const lines = text.split('\n');
+        return lines
+            .map(line => line.split(','))
+            .filter(row => row.length >= 3 && row[0].trim() !== "");
+    }
+
+    async function loadServerData() {
+        const tableBody = document.getElementById('servers-table-body');
+        const errorBox = document.getElementById('error-box');
+        
+        // !!! הדבק כאן את הקישור שהעתקת מ-Google Sheets (סוג קובץ CSV) !!!
+        const sheetCsvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRD_922LGtR44sE2WLSs6nRB0XbKfwc3CclGKQChD_-XZaE0TMcdU1ju7F2sLjC7b3x5O8I_gsgvThw/pub?gid=0&single=true&output=csv'; 
+        
+        try {
+            if (sheetCsvUrl === 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRD_922LGtR44sE2WLSs6nRB0XbKfwc3CclGKQChD_-XZaE0TMcdU1ju7F2sLjC7b3x5O8I_gsgvThw/pub?gid=0&single=true&output=csv') {
+                throw new Error("אנא עדכן את הקישור לגיליון ה-Google Sheets שלך בקוד.");
+            }
+
+            const response = await fetch(sheetCsvUrl);
+            
+            if (!response.ok) {
+                throw new Error(`שגיאה בטעינת קובץ הנתונים: ${response.status}`);
+            }
+            
+            const csvText = await response.text();
+            const rows = parseCSV(csvText);
+            
+            tableBody.innerHTML = ''; 
+            
+            // אם השורה הראשונה בגיליון היא כותרת (למשל "מזהה", "בשימוש"), נרצה לדלג עליה.
+            // אם אין לך שורת כותרת והנתונים מתחילים מיד בשורה 1, שנה את ה-slice(1) ל-slice(0)
+            const serverRows = rows.slice(1); 
+            
+            serverRows.forEach((row, index) => {
+                const serverName = row[0].trim();
+                const creditsUsed = parseFloat(row[1]);
+                const totalCredits = parseFloat(row[2]);
+                
+                // ודא שהנתונים מספריים ותקינים כדי למנוע חלוקה באפס או שגיאות ויזואליות
+                if (isNaN(creditsUsed) || isNaN(totalCredits) || totalCredits === 0) {
+                    return; 
+                }
+
+                // חישוב אחוז הניצול (ערך בין 0 ל-100)
+                const usageRatio = Math.min(Math.max(creditsUsed / totalCredits, 0), 1);
+                const usagePercentage = usageRatio * 100;
+                
+                const tableRow = document.createElement('tr');
+                tableRow.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td><b>${escapeHtml(serverName)}</b></td>
+                    <td>
+                        <div class="gauge-container">
+                            <div class="color-triangle"></div>
+                            <div class="indicator-line" style="right: ${usagePercentage}%;"></div>
+                        </div>
+                    </td>
+                `;
+                tableBody.appendChild(tableRow);
+            });
+            
+            if (tableBody.children.length === 0) {
+                throw new Error("לא נמצאו נתוני שרתים תקינים בגיליון.");
+            }
+            
+        } catch (error) {
+            errorBox.textContent = `שגיאה: ${error.message}`;
+            errorBox.style.display = 'block';
+            console.error(error);
+        }
     }
 
     window.addEventListener('DOMContentLoaded', loadServerData);
