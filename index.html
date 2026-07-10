@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ניטור שרתים</title>
+    <title>ניטור שרתי NextDNS - מדד משולש</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -12,7 +12,7 @@
             padding: 20px;
         }
         .container {
-            max-width: 800px;
+            max-width: 900px;
             margin: 0 auto;
             background: #ffffff;
             padding: 20px;
@@ -22,7 +22,13 @@
         h1 {
             text-align: center;
             color: #333333;
+            margin-bottom: 5px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
             margin-bottom: 25px;
+            font-size: 0.9em;
         }
         table {
             width: 100%;
@@ -42,12 +48,18 @@
         tr:hover {
             background-color: #f8f9fa;
         }
+        .credits-text {
+            font-size: 0.85em;
+            color: #555;
+            margin-top: 4px;
+            display: block;
+        }
         
         /* מיכל המדד הויזואלי */
         .gauge-container {
             position: relative;
             width: 100%;
-            height: 35px; /* גובה אזור המדד כולו */
+            height: 35px;
             display: flex;
             align-items: center;
         }
@@ -56,9 +68,7 @@
         .color-triangle {
             width: 100%;
             height: 24px;
-            /* מעבר צבעים רציף מירוק, דרך צהוב/כתום, ועד אדום */
             background: linear-gradient(to left, #28a745 0%, #ffc107 50%, #dc3545 100%);
-            /* חיתוך הדיב לצורת משולש שמתחיל נמוך בירוק ועולה גבוה באדום */
             clip-path: polygon(0% 100%, 100% 0%, 100% 100%);
         }
 
@@ -71,8 +81,8 @@
             background-color: #000000;
             border-radius: 2px;
             box-shadow: 0 0 4px rgba(255, 255, 255, 0.9);
-            transform: translateX(50%); /* מרכז את הפס על נקודת האחוז המדויקת */
-            transition: right 0.5s ease-out; /* אנימציה חלקה בעת טעינת שינויים */
+            transform: translateX(50%);
+            transition: right 0.5s ease-out;
         }
 
         .error-message {
@@ -84,29 +94,42 @@
             margin-bottom: 15px;
             text-align: right;
         }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            font-weight: bold;
+            color: #555;
+        }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>מדד עומס שרתים</h1>
+    <h1>מדד עומס שרתי NextDNS</h1>
+    <div class="subtitle">הנתונים נטענים מתוך ה-Google Sheets ומאומתים מול NextDNS בזמן אמת</div>
     <div id="error-box" class="error-message"></div>
     
     <table>
         <thead>
             <tr>
-                <th style="width: 10%;">מספר</th>
-                <th style="width: 25%;">מזהה שרת</th>
-                <th style="width: 65%;">סטטוס שימוש</th>
+                <th style="width: 8%;">מספר</th>
+                <th style="width: 27%;">מזהה שרת</th>
+                <th style="width: 65%;">סטטוס ניצול שאילתות (חודשי)</th>
             </tr>
         </thead>
         <tbody id="servers-table-body">
+            <tr>
+                <td colspan="3" class="loading">טוען רשימת שרתים ונתונים...</td>
+            </tr>
         </tbody>
     </table>
 </div>
 
 <script>
-    // פונקציית עזר למניעת הזרקות קוד - מוגדרת למעלה כדי למנוע שגיאות ריצה
+    // הקישור הישיר לקובץ ה-CSV שסיפקת מתוך גוגל שיטס
+    const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRD_922LGtR44sE2WLSs6nRB0XbKfwc3CclGKQChD_-XZaE0TMcdU1ju7F2sLjC7b3x5O8I_gsgvThw/pub?gid=0&single=true&output=csv';
+
     function escapeHtml(string) {
         return String(string).replace(/[&<>"']/g, function (s) {
             return {
@@ -119,81 +142,123 @@
         });
     }
 
-    // פונקציה פשוטה לפירוק שורות CSV (מתמודדת עם פסיקים פשוטים)
+    // פונקציה לפירוק שורות CSV שמתמודדת גם עם מרכאות (הנפוץ ב-Google Sheets)
     function parseCSV(text) {
-        const lines = text.split('\n');
-        return lines
-            .map(line => line.split(','))
-            .filter(row => row.length >= 3 && row[0].trim() !== "");
+        const lines = text.split(/\r?\n/);
+        return lines.map(line => {
+            // ביטוי רגולרי שמפרק לפי פסיקים תוך התעלמות מפסיקים בתוך מרכאות
+            const matches = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || line.split(',');
+            return matches.map(val => val.replace(/^"|"$/g, '').trim());
+        }).filter(row => row.length >= 3 && row[0] !== "");
     }
 
-    async function loadServerData() {
+    // פונקציה שמביאה את כמות השאילתות שנוצלו מתוך ה-API של NextDNS
+    async function fetchNextDnsUsage(profileId, apiKey) {
+        const url = `https://api.nextdns.io/profiles/${profileId}/usage`;
+        
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'X-API-Key': apiKey
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`שגיאה ${response.status} (בדוק מפתח או פרופיל)`);
+        }
+
+        const data = await response.json();
+        
+        let totalUsedThisMonth = 0;
+        if (data && data.data && Array.isArray(data.data)) {
+            // סכימת השאילתות של כל הימים בחודש הנוכחי
+            totalUsedThisMonth = data.data.reduce((sum, day) => sum + (day.queries || 0), 0);
+        }
+
+        return totalUsedThisMonth;
+    }
+
+    async function initMonitoring() {
         const tableBody = document.getElementById('servers-table-body');
         const errorBox = document.getElementById('error-box');
         
-        // !!! הדבק כאן את הקישור שהעתקת מ-Google Sheets (סוג קובץ CSV) !!!
-        const sheetCsvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRD_922LGtR44sE2WLSs6nRB0XbKfwc3CclGKQChD_-XZaE0TMcdU1ju7F2sLjC7b3x5O8I_gsgvThw/pub?gid=0&single=true&output=csv'; 
-        
         try {
-            if (sheetCsvUrl === 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRD_922LGtR44sE2WLSs6nRB0XbKfwc3CclGKQChD_-XZaE0TMcdU1ju7F2sLjC7b3x5O8I_gsgvThw/pub?gid=0&single=true&output=csv') {
-                throw new Error("אנא עדכן את הקישור לגיליון ה-Google Sheets שלך בקוד.");
-            }
-
-            const response = await fetch(sheetCsvUrl);
-            
+            // שלב א': משיכת ה-CSV מ-Google Sheets
+            const response = await fetch(SHEET_CSV_URL);
             if (!response.ok) {
-                throw new Error(`שגיאה בטעינת קובץ הנתונים: ${response.status}`);
+                throw new Error(`לא ניתן לגשת לגיליון גוגל (סטטוס: ${response.status})`);
             }
             
             const csvText = await response.text();
             const rows = parseCSV(csvText);
             
-            tableBody.innerHTML = ''; 
+            // דילוג על שורת הכותרת הראשונה של הגיליון
+            const serverRows = rows.slice(1);
             
-            // אם השורה הראשונה בגיליון היא כותרת (למשל "מזהה", "בשימוש"), נרצה לדלג עליה.
-            // אם אין לך שורת כותרת והנתונים מתחילים מיד בשורה 1, שנה את ה-slice(1) ל-slice(0)
-            const serverRows = rows.slice(1); 
+            if (serverRows.length === 0) {
+                throw new Error("לא נמצאו שרטים רשומים בגיליון.");
+            }
             
-            serverRows.forEach((row, index) => {
-                const serverName = row[0].trim();
-                const creditsUsed = parseFloat(row[1]);
-                const totalCredits = parseFloat(row[2]);
+            tableBody.innerHTML = ''; // מחיקת הודעת הטעינה
+            
+            // שלב ב': ריצה על כל השרתים שנמצאו בגיליון ופנייה ל-API של NextDNS
+            for (let i = 0; i < serverRows.length; i++) {
+                const row = serverRows[i];
                 
-                // ודא שהנתונים מספריים ותקינים כדי למנוע חלוקה באפס או שגיאות ויזואליות
-                if (isNaN(creditsUsed) || isNaN(totalCredits) || totalCredits === 0) {
-                    return; 
-                }
+                const serverName = row[0]; // עמודה A
+                const profileId  = row[1]; // עמודה B
+                const apiKey     = row[2]; // עמודה C
+                
+                // עמודה D היא סך הכל קרדיטים, אם לא מולא, נברירת המחדל היא 300,000
+                let totalCredits = (row[3] && !isNaN(row[3])) ? parseFloat(row[3]) : 300000;
 
-                // חישוב אחוז הניצול (ערך בין 0 ל-100)
-                const usageRatio = Math.min(Math.max(creditsUsed / totalCredits, 0), 1);
-                const usagePercentage = usageRatio * 100;
-                
-                const tableRow = document.createElement('tr');
-                tableRow.innerHTML = `
-                    <td>${index + 1}</td>
-                    <td><b>${escapeHtml(serverName)}</b></td>
-                    <td>
-                        <div class="gauge-container">
-                            <div class="color-triangle"></div>
-                            <div class="indicator-line" style="right: ${usagePercentage}%;"></div>
-                        </div>
-                    </td>
-                `;
-                tableBody.appendChild(tableRow);
-            });
-            
-            if (tableBody.children.length === 0) {
-                throw new Error("לא נמצאו נתוני שרתים תקינים בגיליון.");
+                try {
+                    // פנייה ל-NextDNS לקבלת הניצול הנוכחי עבור השרת הזה
+                    const creditsUsed = await fetchNextDnsUsage(profileId, apiKey);
+                    
+                    // חישוב אחוזי הניצול לטובת המחוון
+                    const usageRatio = Math.min(Math.max(creditsUsed / totalCredits, 0), 1);
+                    const usagePercentage = usageRatio * 100;
+                    
+                    const tableRow = document.createElement('tr');
+                    tableRow.innerHTML = `
+                        <td>${i + 1}</td>
+                        <td><b>${escapeHtml(serverName)}</b></td>
+                        <td>
+                            <div class="gauge-container">
+                                <div class="color-triangle"></div>
+                                <div class="indicator-line" style="right: ${usagePercentage}%;"></div>
+                            </div>
+                            <span class="credits-text">
+                                נוצלו ${creditsUsed.toLocaleString()} מתוך ${totalCredits.toLocaleString()} שאילתות (${usagePercentage.toFixed(1)}%)
+                            </span>
+                        </td>
+                    `;
+                    tableBody.appendChild(tableRow);
+                    
+                } catch (dnsError) {
+                    // במקרה ששרת ספציפי נכשל (למשל מפתח שגוי), נציג שגיאה בשורה שלו במקום לעצור את כל הדף
+                    const tableRow = document.createElement('tr');
+                    tableRow.innerHTML = `
+                        <td>${i + 1}</td>
+                        <td><b>${escapeHtml(serverName)}</b></td>
+                        <td style="color: #dc3545; font-size: 0.9em;">
+                            שגיאה במשיכת נתונים מ-NextDNS: ${dnsError.message}
+                        </td>
+                    `;
+                    tableBody.appendChild(tableRow);
+                }
             }
             
         } catch (error) {
-            errorBox.textContent = `שגיאה: ${error.message}`;
+            errorBox.textContent = `שגיאה כללית במערכת: ${error.message}`;
             errorBox.style.display = 'block';
+            tableBody.innerHTML = `<tr><td colspan="3" style="color: #dc3545;">טעינת הנתונים נכשלה.</td></tr>`;
             console.error(error);
         }
     }
 
-    window.addEventListener('DOMContentLoaded', loadServerData);
+    window.addEventListener('DOMContentLoaded', initMonitoring);
 </script>
 
 </body>
