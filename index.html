@@ -107,7 +107,7 @@
 
 <div class="container">
     <h1>מדד עומס שרתי NextDNS</h1>
-    <div class="subtitle">הנתונים נטענים מתוך ה-Google Sheets ומאומתים מול NextDNS בזמן אמת</div>
+    <div class="subtitle">רשימת שרתים דינמית מתוך ה-Google Sheets עם אימות CORS מול NextDNS</div>
     <div id="error-box" class="error-message"></div>
     
     <table>
@@ -142,21 +142,22 @@
         });
     }
 
-    // פונקציה לפירוק שורות CSV שמתמודדת גם עם מרכאות (הנפוץ ב-Google Sheets)
+    // פונקציה לפירוק שורות CSV שמתמודדת בצורה דינמית ומדויקת עם מרכאות ופסיקים של גוגל שיטס
     function parseCSV(text) {
         const lines = text.split(/\r?\n/);
         return lines.map(line => {
-            // ביטוי רגולרי שמפרק לפי פסיקים תוך התעלמות מפסיקים בתוך מרכאות
             const matches = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || line.split(',');
             return matches.map(val => val.replace(/^"|"$/g, '').trim());
         }).filter(row => row.length >= 3 && row[0] !== "");
     }
 
-    // פונקציה שמביאה את כמות השאילתות שנוצלו מתוך ה-API של NextDNS
+    // פונקציה שמביאה את כמות השאילתות תוך עקיפת חסימת ה-CORS בעזרת פרוקסי
     async function fetchNextDnsUsage(profileId, apiKey) {
-        const url = `https://api.nextdns.io/profiles/${profileId}/usage`;
+        const targetUrl = `https://api.nextdns.io/profiles/${profileId}/usage`;
+        // שימוש בפרוקסי קבוע שרק מעביר את הבקשה ומחזיר את כותרות ה-CORS המתאימות
+        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
         
-        const response = await fetch(url, {
+        const response = await fetch(proxyUrl, {
             method: 'GET',
             headers: {
                 'X-API-Key': apiKey
@@ -164,7 +165,7 @@
         });
 
         if (!response.ok) {
-            throw new Error(`שגיאה ${response.status} (בדוק מפתח או פרופיל)`);
+            throw new Error(`שגיאה ${response.status} (בדוק את ה-API Key או ה-Profile ID)`);
         }
 
         const data = await response.json();
@@ -183,7 +184,7 @@
         const errorBox = document.getElementById('error-box');
         
         try {
-            // שלב א': משיכת ה-CSV מ-Google Sheets
+            // משיכת קובץ ה-CSV מ-Google Sheets (גוגל מאפשר CORS כברירת מחדל)
             const response = await fetch(SHEET_CSV_URL);
             if (!response.ok) {
                 throw new Error(`לא ניתן לגשת לגיליון גוגל (סטטוס: ${response.status})`);
@@ -192,28 +193,28 @@
             const csvText = await response.text();
             const rows = parseCSV(csvText);
             
-            // דילוג על שורת הכותרת הראשונה של הגיליון
+            // דילוג על שורת הכותרת הראשונה של הגיליון (שורה 1)
             const serverRows = rows.slice(1);
             
             if (serverRows.length === 0) {
-                throw new Error("לא נמצאו שרטים רשומים בגיליון.");
+                throw new Error("לא נמצאו שרתים רשומים בגיליון.");
             }
             
-            tableBody.innerHTML = ''; // מחיקת הודעת הטעינה
+            tableBody.innerHTML = ''; // ניקוי הודעת הטעינה
             
-            // שלב ב': ריצה על כל השרתים שנמצאו בגיליון ופנייה ל-API של NextDNS
+            // לולאה דינמית - רצה על פני כל השורות הקיימות בגיליון ללא הגבלת כמות
             for (let i = 0; i < serverRows.length; i++) {
                 const row = serverRows[i];
                 
-                const serverName = row[0]; // עמודה A
-                const profileId  = row[1]; // עמודה B
-                const apiKey     = row[2]; // עמודה C
+                const serverName = row[0]; // עמודה A - שם השרת
+                const profileId  = row[1]; // עמודה B - מזהה הפרופיל
+                const apiKey     = row[2]; // עמודה C - מפתח ה-API
                 
-                // עמודה D היא סך הכל קרדיטים, אם לא מולא, נברירת המחדל היא 300,000
+                // עמודה D היא סך הכל קרדיטים, אם היא ריקה השרת יקבל אוטומטית 300,000
                 let totalCredits = (row[3] && !isNaN(row[3])) ? parseFloat(row[3]) : 300000;
 
                 try {
-                    // פנייה ל-NextDNS לקבלת הניצול הנוכחי עבור השרת הזה
+                    // פנייה ל-NextDNS דרך הפרוקסי
                     const creditsUsed = await fetchNextDnsUsage(profileId, apiKey);
                     
                     // חישוב אחוזי הניצול לטובת המחוון
@@ -237,13 +238,13 @@
                     tableBody.appendChild(tableRow);
                     
                 } catch (dnsError) {
-                    // במקרה ששרת ספציפי נכשל (למשל מפתח שגוי), נציג שגיאה בשורה שלו במקום לעצור את כל הדף
+                    // אם שרת אחד נכשל, הוא יוצג עם שגיאה ייעודית, ושאר הטבלה תמשיך להיטען כרגיל
                     const tableRow = document.createElement('tr');
                     tableRow.innerHTML = `
                         <td>${i + 1}</td>
                         <td><b>${escapeHtml(serverName)}</b></td>
-                        <td style="color: #dc3545; font-size: 0.9em;">
-                            שגיאה במשיכת נתונים מ-NextDNS: ${dnsError.message}
+                        <td style="color: #dc3545; font-size: 0.9em; font-weight: bold;">
+                            שגיאה: ${dnsError.message}
                         </td>
                     `;
                     tableBody.appendChild(tableRow);
